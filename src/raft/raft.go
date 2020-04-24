@@ -15,8 +15,11 @@ package raft
 //   this function will be called via RPC on the other Raft nodes during the election
 
 import (
+	"math/rand"
+	"strconv"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"../labrpc"
 )
@@ -108,6 +111,7 @@ func (rf *Raft) readPersist(data []byte) {
 // field names must start with capital letters!
 type RequestVoteArgs struct {
 	// Your data here (2A, 2B).
+	SenderID int
 }
 
 //
@@ -116,12 +120,20 @@ type RequestVoteArgs struct {
 //
 type RequestVoteReply struct {
 	// Your data here (2A).
+	Vote bool
 }
 
 // RequestVote is the RPC handler which will be executed by a node
 // when it gets a request for a vote
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
+	/* Add your logic for deciding whether to vote here */
+	rf.myPrint("I've been asked to make a vote for node %v.", args.SenderID)
+	if rand.Int()%2 == 0 {
+		reply.Vote = true
+	} else {
+		reply.Vote = false
+	}
 }
 
 //
@@ -203,6 +215,41 @@ func (rf *Raft) killed() bool {
 	return z == 1
 }
 
+/* Custom print function that shows the ID of the node.
+   TODO: Add other useful information like term/leader status.
+*/
+func (rf *Raft) myPrint(format string, a ...interface{}) (n int, err error) {
+	DPrintf("ID: "+strconv.Itoa(rf.me)+" : "+format, a...)
+	return
+}
+
+func (rf *Raft) mainLoop() {
+
+	/* Loop until the test framework kills us */
+	for !rf.killed() {
+		/* Make node 2 request votes from all nodes */
+		if rf.me == 2 {
+			for i := 0; i < len(rf.peers); i++ {
+				if i == rf.me {
+					continue
+				}
+				req := RequestVoteArgs{rf.me}
+				reply := RequestVoteReply{}
+				if !rf.sendRequestVote(i, &req, &reply) {
+					rf.myPrint("Send failed :(")
+				}
+				if reply.Vote {
+					rf.myPrint("They voted for me!")
+				} else {
+					rf.myPrint("They did't voted for me!")
+				}
+			}
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	rf.myPrint("Killed")
+}
+
 // Make a new Raft node and perform its initialization.
 // the service or tester wants to create a Raft server. the ports
 // of all the Raft servers (including this one) are in peers[]. this
@@ -225,6 +272,10 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
+
+	rf.myPrint("has been made.")
+	// Start main loop in a separate thread
+	go rf.mainLoop()
 
 	return rf
 }
